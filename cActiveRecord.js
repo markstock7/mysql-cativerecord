@@ -1,7 +1,6 @@
 var mysql = require('mysql'),
 	_ = require('lodash'),
-	Q = require('q'),
-	crypto = require('crypto');
+	Q = require('q');
 
 (function(global){
 	var MPClass = (function(){
@@ -30,11 +29,18 @@ var mysql = require('mysql'),
 				_super = this.prototype;
 			}
 			initializing = false;
-			var setStatic;
+			var setStatic,initFn;
 			if('setStatic' in prop){
 				setStatic = prop['setStatic'];
 				delete prop['setStatic'];
 			}
+			if(('init' in prop ) && _.isFunction(prop['init'])){
+				initFn = prop['init'];
+				delete prop['init'];
+			} else {
+				throw 'Missing init function';
+			}
+
 			for (var name in prop) {
 				proto[name] = typeof prop[name] == "function" &&
 				typeof _super[name] == "function" &&
@@ -51,18 +57,15 @@ var mysql = require('mysql'),
 						};
 					})(name, prop[name]) : prop[name];
 			}
-
 			// 包装构造函数
-			if(!initializing && proto.init){
-				var fn = proto.init;
+
+			if(!initializing){
 				proto.init = (function(){
 					return function(){
 						_super['init'].apply(this,arguments);
-						fn.apply(this,arguments);
+						initFn.apply(this,arguments);
 					}
 				}());
-			} else {
-				throw 'Missing init function';
 			}
 			function Class() {
 				// 构造函数自动运行
@@ -106,30 +109,37 @@ var mysql = require('mysql'),
 
 
 
-var DBCollection = MPClass(function(){
-	var $data = [],
-		$index = 0,
-		$length = 0;
-	return {
-		init : function(data){
-			$data = data;
-			$index = 0;
-			$length = $data.length;
-		},
-		next : function(fn){},
-		factory : function(data){
-
-		},
-		rewind: function(){
-
-		}
-	}
-});
+//var DBCollection = MPClass(function(){
+//	var $data = [],
+//		$index = 0,
+//		$length = 0;
+//	return {
+//		init : function(data){
+//			$data = data;
+//			$index = 0;
+//			$length = $data.length;
+//		},
+//		next : function(fn){},
+//		factory : function(data){
+//
+//		},
+//		rewind: function(){
+//
+//		}
+//	}
+//});
 
 
 
 var Error = 1;
-
+var mysqlConfig = {
+	// mysql configure
+	host     : 'localhost',
+	user     : 'mark',
+	password : 'whmjack1994',
+	database : 'mp',
+	port	 : 3306
+};
 /**
  * Class 基类
  * 定义类数据库连接的初始化,
@@ -216,9 +226,12 @@ var DBase = MPClass(function(){
 				$db.query($sql, params, function(err, rows, fields){
 					if(err) defer.reject(err);
 					if(flag === true)
-						defer.resolve(rows[0], fields);
+						if(rows.length>0)
+							defer.resolve(rows[0]);
+						else
+							defer.resolve('wrong');
 					else {
-						defer.resolve(rows, fields);
+						defer.resolve(rows);
 					}
 				});
 			} else {
@@ -478,7 +491,6 @@ var DBValidate = MPClass(function(){
 		 * @returns {{field: string, msg: *}}
 		 */
 		all: function (params) {
-			console.log(params)
 			var valid,
 				name,
 				value,
@@ -488,6 +500,15 @@ var DBValidate = MPClass(function(){
 				value = params[name];
 				if((valid = this.validate(name, value)) !== true)
 					return {field: name ,msg: valid};
+			}
+			return true;
+		},
+		some : function(params){
+			var valid,name,value;
+			for(name in params){
+				value = params[name];
+				if((valid = this.validate(name,value)) !== true)
+					return {field:name, msg:valid};
 			}
 			return true;
 		},
@@ -640,26 +661,38 @@ module.exports= DBase.extend(function(){
 					}
 					// 生成实例
 					var cls = this,
-						instance = new cls();
-
+						instance = new cls(),
+						valid,
+						defer = Q.defer();
 					if (!condition) condition = 1;
 					if (!param) param = ['*'];
-					if (instance.validate.validate(condition)) condition = instance.validate.toString(condition);
-					var sql = selectQuery.replace(/:params/, param.join(','))
-						.replace(/:table/, instance.tableName())
-						.replace(/:condition/, _.map(_.keys(condition),function(v){return v+'=:'+v}).join(' and '));
-					var defer = Q.defer();
-					instance.createCommand(sql).query(condition).then(function(data){
-						_.map(data[0], function (value, key) {
-							if (instance.getParam(key)) {
-								instance.delParam(key);
+					if ((valid = instance.validate.some(condition)) !== true){
+						defer.reject(valid);
+					} else {
+						var sql = selectQuery.replace(/:params/, param.join(','))
+							.replace(/:table/, instance.tableName())
+							.replace(/:condition/, _.map(_.keys(condition), function (v) {
+								return v + '=:' + v
+							}).join(' and '));
+
+						instance.createCommand(sql).query(condition).then(function (data) {
+							if (data.length === 0) {
+								defer.resolve(null);
+							} else {
+								_.map(data[0], function (value, key) {
+									if (instance.getParam(key)) {
+										instance.delParam(key);
+									}
+									instance.model[key] = [value, 0];
+									instance.assignParam(key, [value, 0]);
+								});
+								instance["$id"] = data[0][instance.primaryKey];
+								defer.resolve(instance);
 							}
-							instance.model[key] = [value, 0];
-							instance.assignParam(key, [value, 0]);
+						}, function (err) {
+							defer.reject(err)
 						});
-						instance["$id"] = data[0][instance.primaryKey];
-						defer.resolve(instance);
-					},function(err){defer.reject(err)});
+					}
 					return defer.promise;
 				}
 			}
@@ -735,8 +768,6 @@ module.exports= DBase.extend(function(){
 					.replace(/:params/, _.keys(params).join(','))
 					.replace(/:values/, _.map(_.keys(params),function(v){return ':'+v}).join(','));
 				var that = this;
-				console.log(sql);
-				console.log('model',params);
 				this.createCommand(sql).execute(params).then(function(data){
 					for(value in that.model){
 						that.model[value][1] = 0;
@@ -809,6 +840,13 @@ module.exports= DBase.extend(function(){
 		/** 虚方法 */
 		tableName: function () {
 			return '';
+		},
+		stringOf: function(){
+			var data = {};
+			for(var name in this.model){
+				data[name] = this.model[name][0];
+			}
+			return data;
 		}
 	}
 }());
@@ -816,6 +854,7 @@ module.exports= DBase.extend(function(){
 
 
 //var User = CActiveRecord.extend({
+//	init:function(){},
 //	tableName : function(){
 //		return 'mp_user'
 //	},
