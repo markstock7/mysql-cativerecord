@@ -132,14 +132,7 @@ var mysql = require('mysql'),
 
 
 var Error = 1;
-var mysqlConfig = {
-	// mysql configure
-	host     : 'localhost',
-	user     : 'mark',
-	password : 'whmjack1994',
-	database : 'mp',
-	port	 : 3306
-};
+
 /**
  * Class 基类
  * 定义类数据库连接的初始化,
