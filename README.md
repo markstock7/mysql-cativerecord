@@ -1,6 +1,7 @@
 # mysql-cactiveRecord
 A cAtiveRecord that can help user to easily manipulate record with mysql
 
+```
 var User = CActiveRecord.extend({
  init:function(){},
  tableName : function(){
