@@ -912,9 +912,9 @@ module.exports= DBase.extend(function(){
 //	}
 //});
 //var user = new User();
-////user.model.user_password = "whmjack1994"
+////user.model.user_password = "mypassword"
 ////user.save({
-////	user_username :"markstlsdjfs",
+////	user_username :"mark stock",
 ////	user_email : "markstock7@hotmail.com"
 ////}).then(function(){
 ////	console.log(user);
